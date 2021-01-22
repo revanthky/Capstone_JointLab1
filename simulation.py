@@ -30,9 +30,12 @@ class Robot:
         return output
 
     def updateState(self, nextState):
-        self.state[0] = nextState[0]
-        self.state[1] = nextState[1]
-        self.state[2] = nextState[2]
+        if nextState[0] > 0 and nextState[0] < 100:
+            self.state[0] = nextState[0]
+        if nextState[1] > 0 and nextState[1] < 100:
+            self.state[1] = nextState[1]
+        if nextState[2] > 0 and nextState[2] < 100:
+            self.state[2] = nextState[2]
 
     def getNextState(self, input_):
         # convert PWM to rotational velocity
@@ -51,8 +54,8 @@ class Robot:
         vbar = (velocity[0] + velocity[1]) / 2
 
         # delta x1, x2, x3
-        delta_x = vbar * np.sin(self.state[2])
-        delta_y = vbar * np.cos(self.state[2])
+        delta_x = vbar * np.cos(self.state[2])
+        delta_y = vbar * np.sin(self.state[2])
         omega = velocity[0] - velocity[1]
 
         nState = [0, 0, 0]  # placeholder?
@@ -78,15 +81,6 @@ class Robot:
         # Update State
         self.updateState(nextState)
 
-    def check_state(self, to_output):
-        x1 = self.state[0]
-
-        x2 = self.state[1]
-        x3 = self.state[2]
-        if x1 < 0 or x1 > x_max or x2 < 0 or x2 > y_max or x3 < 0 or x3 > 2 * np.pi:
-            return "Invalid state!"
-        return to_output
-
     def output_equation(self, input_, noise=None, time=None):
         # return output as 5 dimensional vector from state (member variables), input_, noise, and time
         if len(input_) != 2:
@@ -103,56 +97,71 @@ class Robot:
         angle = self.state[2]
 
         def getMainLineIntersection(x, y, angle):
-            slope = np.tan(angle)
-            intercept = y - (slope * x)
-
-            ywf = slope * x_max + intercept
-            ywb = slope * 0 + intercept
-
-            xwf = (y_max - intercept) / slope
-            xwb = (0 - intercept) / slope
-            return ((xwf, ywf), (xwb, ywb))
+            while angle >= 2 * np.pi:
+                angle -= 2 * np.pi
+            while angle < 0:
+                angle += 2 * np.pi
+            if angle == 0:
+                xwf = x_max
+                ywf = y
+            elif angle == np.pi / 2:
+                xwf = x
+                ywf = y_max
+            elif angle == np.pi:
+                xwf = 0
+                ywf = y
+            elif angle == 3 * np.pi / 2:
+                xwf = x
+                ywf = 0
+            else:
+                slope = np.tan(angle)
+                intercept = y - (slope * x)
+                ywf = min(y_max, slope * x_max + intercept)
+                ywf = max(ywf, 0)
+                # ywb = slope*0 + intercept
+                xwf = min(x_max, (y_max - intercept) / slope)
+                xwf = max(xwf, 0)
+                # xwb = (0 - intercept) / slope
+            return (xwf, ywf)
 
         def getPerpLineIntersection(x, y, angle):
-            slope = np.tan(np.arctan(y / x) - angle)
+            angle -= np.pi / 2
+            while angle >= 2 * np.pi:
+                angle -= 2 * np.pi
+            while angle < 0:
+                angle += 2 * np.pi
+            if angle == 0:
+                xwr = x_max
+                ywr = y
+            elif angle == np.pi / 2:
+                xwr = x
+                ywr = y_max
+            elif angle == np.pi:
+                xwr = 0
+                ywr = y
+            elif angle == 3 * np.pi / 2:
+                xwr = x
+                ywr = 0
+            else:
+                slope = np.tan(angle)
+                intercept = y - (slope * x)
+                ywr = min(y_max, slope * x_max + intercept)
+                ywr = max(ywr, 0)
+                # ywl = slope*0 + intercept
+                # xwl = (y_max - intercept) / slope
+                xwr = min(x_max, (0 - intercept) / slope)
+                xwr = max(xwr, 0)
+            return (xwr, ywr)
 
-            slope = -(1 / slope)
-            intercept = y - (slope * x)
-
-            y1 = slope * x_max + intercept
-            y2 = slope * 0 + intercept
-
-            x1 = (y_max - intercept) / slope
-            x2 = (0 - intercept) / slope
-            return ((x1, y1), (x2, y2))
-
-
-        if angle > np.pi / 4 and angle <= 3 * np.pi / 4:
-            ywf = y_max
-            xwr = x_max
-            xwf = x + np.tan(angle) * (y_max - y)
-            ywr = y + np.tan(angle) * (x_max - x)
-
-        elif (angle > (3 * np.pi / 4)) and (angle <= (5 * np.pi / 4)):
-            xwf = 0
-            ywr = y_max
-            xwr = x + np.tan(angle) * (y_max - y)
-            ywf = y + np.tan(angle) * (x_max - x)
-        elif angle > 5 * np.pi / 4 and angle <= 7 * np.pi / 4:
-            ywf = 0
-            xwr = 0
-            ywr = y + np.tan(angle) * (x_max - x)
-            xwf = x + np.tan(angle) * (y_max - y)
-        else:
-            xwf = x_max
-            ywr = 0
-            xwr = x + np.tan(angle) * (y_max - y)
-            ywf = y + np.tan(angle) * (x_max - x)
-
-        output_vec[0] = np.sqrt((xwf - self.state[0]) ** 2 + (ywf - self.state[1]) ** 2)  # distance to the wall in front
+        xwf, ywf = getMainLineIntersection(x, y, angle)
+        xwr, ywr = getPerpLineIntersection(x, y, angle)
+        output_vec[0] = np.sqrt(
+            (xwf - self.state[0]) ** 2 + (ywf - self.state[1]) ** 2)  # distance to the wall in front
         output_vec[1] = np.sqrt(
             (xwr - self.state[0]) ** 2 + (ywr - self.state[1]) ** 2)  # distance to the wall to the right
 
+        # output_vec[0] = np.linalg.norm(np.array([xwf,ywf]) - np.array([self.state[0],self.state[1]]))
+        # output_vec[1] = np.linalg.norm(np.array([xwr,ywr]) - np.array([self.state[0],self.state[1]]))
         # convert PWM to rotational velocity
         rot_vel = self.pwmToRotVel(input_)
         velocity = rot_vel * (wheel_d / 2)
@@ -165,16 +174,54 @@ class Robot:
         output_vec[3] = np.cos(phi)  # magnetic field in x direction
         output_vec[4] = np.sin(phi)  # magnetic field in y direction
 
-        return self.check_state(output_vec)
+        return output_vec
 
 
-# testing
-rob = Robot(2, 3, math.pi / 4)
-print(rob.state)
-for i in range(10):
+# Test 1
+rob = Robot(0, 0, math.pi / 4)
+xposes = []
+yposes = []
+# print(rob.output_equation([0,0]))
+for i in range(40):
     rob.state_dynamic_equation([1, 1])
-    print(rob.state)
-    print(rob.output_equation([0, 0]))
+    xposes.append(rob.state[0])
+    yposes.append(rob.state[1])
+# print(rob.output_equation([0,0]))
+plt.plot(xposes, yposes)
+plt.xlabel('x pos')
+plt.ylabel('y pos')
+plt.title('Test 1')
+plt.show()
 
+# Test 2
+rob = Robot(80, 80, 5 * math.pi / 4)
+xposes = []
+yposes = []
+# print(rob.output_equation([0,0]))
+for i in range(40):
+    rob.state_dynamic_equation([1, 1])
+    xposes.append(rob.state[0])
+    yposes.append(rob.state[1])
+# print(rob.output_equation([0,0]))
+plt.plot(xposes, yposes)
+plt.xlabel('x pos')
+plt.ylabel('y pos')
+plt.title('Test 2')
+plt.show()
 
+# Test 3
+rob = Robot(20, 0, math.pi / 2)
+xposes = []
+yposes = []
+# print(rob.output_equation([0,0]))
+for i in range(40):
+    rob.state_dynamic_equation([1, 1])
+    xposes.append(rob.state[0])
+    yposes.append(rob.state[1])
+# print(rob.output_equation([0,0]))
+plt.plot(xposes, yposes)
+plt.xlabel('x pos')
+plt.ylabel('y pos')
+plt.title('Test 3')
+plt.show()
 
